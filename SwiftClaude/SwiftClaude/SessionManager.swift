@@ -70,11 +70,15 @@ final class SessionManager {
     }
 
     private func handleStatusUpdate(sessionId: String, status: ClaudeStatus) {
-        // Match by Claude's session ID (set via OSC hook from SessionStart)
-        // The sessionId here is Claude's internal ID from the status filename
-        guard let session = sessions.first(where: { $0.claudeSessionId == sessionId }) else {
-            // No session has claimed this Claude session ID yet - ignore silently
-            // The mapping is established when Claude starts and sends OSC 7770
+        // sessionId is Claude's internal ID (from status filename)
+        // Look up SwiftClaude session ID from mapping file written by SessionStart hook
+        let homeDir = FileManager.default.homeDirectoryForCurrentUser
+        let mappingFile = homeDir.appendingPathComponent(".claude/swiftclaude-status/\(sessionId).mapping")
+
+        guard let swiftClaudeIdString = try? String(contentsOf: mappingFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
+              let swiftClaudeId = UUID(uuidString: swiftClaudeIdString),
+              let session = sessions.first(where: { $0.id == swiftClaudeId }) else {
+            // No mapping file or no matching session - not a SwiftClaude-managed session
             return
         }
 
