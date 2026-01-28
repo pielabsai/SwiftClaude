@@ -5,13 +5,64 @@ struct TerminalView: NSViewRepresentable {
     let session: TerminalSession
     var requestFocus: Bool = false
 
-    func makeNSView(context: Context) -> LocalProcessTerminalView {
-        if let existingView = session.terminalView {
+    func makeNSView(context: Context) -> NSView {
+        let container = NSView()
+        let terminalView = getOrCreateTerminalView()
+
+        terminalView.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(terminalView)
+        NSLayoutConstraint.activate([
+            terminalView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            terminalView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            terminalView.topAnchor.constraint(equalTo: container.topAnchor),
+            terminalView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+        ])
+
+        if requestFocus {
+            DispatchQueue.main.async {
+                terminalView.window?.makeFirstResponder(terminalView)
+            }
+        }
+
+        return container
+    }
+
+    func updateNSView(_ container: NSView, context: Context) {
+        let terminalView = getOrCreateTerminalView()
+
+        // Check if we need to swap the terminal view
+        if let currentTerminal = container.subviews.first as? LocalProcessTerminalView,
+           currentTerminal === terminalView {
+            // Same terminal, just handle focus
             if requestFocus {
                 DispatchQueue.main.async {
-                    existingView.window?.makeFirstResponder(existingView)
+                    terminalView.window?.makeFirstResponder(terminalView)
                 }
             }
+            return
+        }
+
+        // Different session - swap the terminal view
+        container.subviews.forEach { $0.removeFromSuperview() }
+
+        terminalView.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(terminalView)
+        NSLayoutConstraint.activate([
+            terminalView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            terminalView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            terminalView.topAnchor.constraint(equalTo: container.topAnchor),
+            terminalView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+        ])
+
+        if requestFocus {
+            DispatchQueue.main.async {
+                terminalView.window?.makeFirstResponder(terminalView)
+            }
+        }
+    }
+
+    private func getOrCreateTerminalView() -> LocalProcessTerminalView {
+        if let existingView = session.terminalView {
             return existingView
         }
 
@@ -34,13 +85,5 @@ struct TerminalView: NSViewRepresentable {
 
         session.terminalView = terminalView
         return terminalView
-    }
-
-    func updateNSView(_ nsView: LocalProcessTerminalView, context: Context) {
-        if requestFocus {
-            DispatchQueue.main.async {
-                nsView.window?.makeFirstResponder(nsView)
-            }
-        }
     }
 }

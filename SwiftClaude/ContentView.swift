@@ -2,11 +2,12 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ContentView: View {
-    @State private var sessionManager = SessionManager()
+    @Environment(SessionManager.self) private var sessionManager
     @State private var searchText = ""
     @FocusState private var isSearchFocused: Bool
 
     var body: some View {
+        @Bindable var sessionManager = sessionManager
         NavigationSplitView {
             SidebarView(
                 sessionManager: sessionManager,
@@ -14,10 +15,14 @@ struct ContentView: View {
                 isSearchFocused: $isSearchFocused
             )
         } detail: {
-            DetailView(
-                sessionManager: sessionManager,
-                shouldFocusTerminal: !isSearchFocused
-            )
+            if let session = sessionManager.selectedSession {
+                DetailView(
+                    session: session,
+                    shouldFocusTerminal: !isSearchFocused
+                )
+            } else {
+                EmptySessionView(sessionManager: sessionManager)
+            }
         }
         .frame(minWidth: 900, minHeight: 600)
         .fileImporter(
@@ -81,7 +86,7 @@ struct SidebarView: View {
 
             List(selection: $sessionManager.selectedSessionID) {
                 ForEach(filteredSessions) { session in
-                    Label(session.name, systemImage: "terminal")
+                    SessionRowView(session: session)
                         .tag(session.id)
                         .contextMenu {
                             Button("Delete", role: .destructive) {
@@ -136,25 +141,63 @@ struct SidebarView: View {
     }
 }
 
-struct DetailView: View {
-    let sessionManager: SessionManager
-    var shouldFocusTerminal: Bool
+struct SessionRowView: View {
+    @Bindable var session: TerminalSession
 
     var body: some View {
-        if let session = sessionManager.selectedSession {
+        HStack(spacing: 8) {
+            Image(systemName: session.currentState.iconName)
+                .foregroundStyle(session.currentState.color)
+                .help(session.currentState.displayName)
+
+            Text(session.name)
+                .lineLimit(1)
+        }
+    }
+}
+
+struct DetailView: View {
+    @Bindable var session: TerminalSession
+    var shouldFocusTerminal: Bool
+    @State private var showDebugView = false
+
+    var body: some View {
+        VStack(spacing: 0) {
             TerminalView(session: session, requestFocus: shouldFocusTerminal)
-                .id(session.id)
-        } else {
-            ContentUnavailableView {
-                Label("No Session Selected", systemImage: "terminal")
-            } description: {
-                Text("Press ⌘N to create a new session")
-            } actions: {
-                Button("New Session") {
-                    sessionManager.requestNewSession()
-                }
-                .buttonStyle(.borderedProminent)
+
+            if showDebugView {
+                Divider()
+                DebugView(session: session)
+                    .frame(height: 200)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
+        }
+        .animation(.easeInOut(duration: 0.2), value: showDebugView)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button(action: { showDebugView.toggle() }) {
+                    Label("Debug", systemImage: showDebugView ? "ladybug.fill" : "ladybug")
+                }
+                .keyboardShortcut("d", modifiers: .command)
+                .help("Toggle Debug View (⌘D)")
+            }
+        }
+    }
+}
+
+struct EmptySessionView: View {
+    let sessionManager: SessionManager
+
+    var body: some View {
+        ContentUnavailableView {
+            Label("No Session Selected", systemImage: "terminal")
+        } description: {
+            Text("Press ⌘N to create a new session")
+        } actions: {
+            Button("New Session") {
+                sessionManager.requestNewSession()
+            }
+            .buttonStyle(.borderedProminent)
         }
     }
 }
