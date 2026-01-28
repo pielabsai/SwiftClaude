@@ -70,30 +70,16 @@ final class SessionManager {
     }
 
     private func handleStatusUpdate(sessionId: String, status: ClaudeStatus) {
-        // Primary: Direct UUID match (when env var is passed correctly)
-        if let uuid = UUID(uuidString: sessionId),
-           let session = sessions.first(where: { $0.id == uuid }) {
-            print("[SC] Status update for '\(session.name)' via direct UUID match")
-            updateSessionStatus(session, with: status)
+        // Only accept direct UUID match - the filename must be a SwiftClaude session ID
+        // This prevents status from other Claude sessions (with Claude's internal IDs) from
+        // being incorrectly associated with SwiftClaude sessions via directory matching
+        guard let uuid = UUID(uuidString: sessionId),
+              let session = sessions.first(where: { $0.id == uuid }) else {
+            // Not a SwiftClaude session, ignore silently
             return
         }
 
-        // Fallback: Directory matching with robust path comparison
-        guard let workspaceDir = status.workspace?.currentDir else {
-            print("[SC] Status update for \(sessionId.prefix(8))...: no workspace directory")
-            return
-        }
-
-        // Normalize paths: resolve symlinks and lowercase for case-insensitive comparison on macOS
-        let workspacePath = (workspaceDir as NSString).resolvingSymlinksInPath.lowercased()
-        guard let session = sessions.first(where: {
-            ($0.directory.path as NSString).resolvingSymlinksInPath.lowercased() == workspacePath
-        }) else {
-            // Not a SwiftClaude-managed directory, ignore silently
-            return
-        }
-
-        print("[SC] Status update for '\(session.name)' via directory fallback from \(sessionId.prefix(8))...")
+        print("[SC] Status update for '\(session.name)'")
         updateSessionStatus(session, with: status)
     }
 
