@@ -182,12 +182,13 @@ final class TranscriptWatcher {
                 return
             }
 
-            // Skip other non-message entries
-            if entryType == "file-history-snapshot" {
+            // Only process user/assistant message entries
+            // Skip progress, file-history-snapshot, and other non-message types
+            guard entryType == "user" || entryType == "assistant" else {
                 continue
             }
 
-            // Found a relevant entry
+            // Found a relevant message entry
             let state = determineState(from: entry)
             let stopInfo = entry.stopReason ?? entry.message?.stopReason ?? "none"
             print("[SC] State: \(state) (from \(entryType) at position \(checkedCount), stop_reason: \(stopInfo))")
@@ -229,8 +230,10 @@ final class TranscriptWatcher {
         }
 
         // Check content types in the message
-        if let content = message.content, let firstContent = content.first {
-            switch firstContent.type {
+        // Use the LAST content block - a message might have [thinking, text, tool_use]
+        // and we want to detect the tool_use state, not just the first block
+        if let content = message.content, let lastContent = content.last {
+            switch lastContent.type {
             case "thinking":
                 return .thinking
             case "tool_use":
@@ -242,7 +245,7 @@ final class TranscriptWatcher {
                 // (Claude Code doesn't stream partial text to transcript)
                 return .waitingForInput
             default:
-                print("[SC] Unknown content type: \(firstContent.type)")
+                print("[SC] Unknown content type: \(lastContent.type)")
                 break
             }
         } else {

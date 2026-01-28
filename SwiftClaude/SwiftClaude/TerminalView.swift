@@ -71,10 +71,14 @@ struct TerminalView: NSViewRepresentable {
 
         let shellPath = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
 
+        // Build environment array with SWIFTCLAUDE_SESSION_ID
+        var envArray = ProcessInfo.processInfo.environment.map { "\($0.key)=\($0.value)" }
+        envArray.append("SWIFTCLAUDE_SESSION_ID=\(session.id.uuidString)")
+
         terminalView.startProcess(
             executable: shellPath,
             args: ["-l", "-i"],
-            environment: nil,
+            environment: envArray,
             execName: nil
         )
 
