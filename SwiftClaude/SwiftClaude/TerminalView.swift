@@ -69,6 +69,19 @@ struct TerminalView: NSViewRepresentable {
         let terminalView = LocalProcessTerminalView(frame: .zero)
         terminalView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
 
+        // Register custom OSC handler (code 7770) to receive Claude's session ID
+        // The SessionStart hook sends: \x1b]7770;claude_session_id\x07
+        let currentSession = session
+        terminalView.getTerminal().registerOscHandler(code: 7770) { data in
+            let content = String(bytes: data, encoding: .utf8) ?? ""
+            if !content.isEmpty {
+                DispatchQueue.main.async {
+                    print("[SC] Received Claude session ID via OSC: \(content.prefix(8))...")
+                    currentSession.claudeSessionId = content
+                }
+            }
+        }
+
         let shellPath = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
 
         // Build environment array with SWIFTCLAUDE_SESSION_ID

@@ -70,16 +70,15 @@ final class SessionManager {
     }
 
     private func handleStatusUpdate(sessionId: String, status: ClaudeStatus) {
-        // Only accept direct UUID match - the filename must be a SwiftClaude session ID
-        // This prevents status from other Claude sessions (with Claude's internal IDs) from
-        // being incorrectly associated with SwiftClaude sessions via directory matching
-        guard let uuid = UUID(uuidString: sessionId),
-              let session = sessions.first(where: { $0.id == uuid }) else {
-            // Not a SwiftClaude session, ignore silently
+        // Match by Claude's session ID (set via OSC hook from SessionStart)
+        // The sessionId here is Claude's internal ID from the status filename
+        guard let session = sessions.first(where: { $0.claudeSessionId == sessionId }) else {
+            // No session has claimed this Claude session ID yet - ignore silently
+            // The mapping is established when Claude starts and sends OSC 7770
             return
         }
 
-        print("[SC] Status update for '\(session.name)'")
+        print("[SC] Status update for '\(session.name)' (claude: \(sessionId.prefix(8))...)")
         updateSessionStatus(session, with: status)
     }
 

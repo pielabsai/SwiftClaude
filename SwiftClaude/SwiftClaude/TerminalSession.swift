@@ -9,6 +9,7 @@ final class TerminalSession: Identifiable, Codable {
     var terminalView: LocalProcessTerminalView?
     var status: ClaudeStatus?
     var currentState: ClaudeState = .idle
+    var claudeSessionId: String?  // Claude's internal session ID, set via OSC hook
 
     enum CodingKeys: String, CodingKey {
         case id, directory, name
