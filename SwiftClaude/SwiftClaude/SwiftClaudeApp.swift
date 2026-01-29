@@ -20,6 +20,7 @@ struct SwiftClaudeApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {
             }
+            TextEditingCommands()
         }
     }
 }

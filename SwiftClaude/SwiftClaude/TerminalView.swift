@@ -1,6 +1,57 @@
 import SwiftUI
 import SwiftTerm
 
+/// Custom TerminalView subclass that properly handles copy/paste in SwiftUI context
+class ClaudeTerminalView: LocalProcessTerminalView {
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // Handle Cmd+C for copy (when there's a selection)
+        if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "c" {
+            if let selection = getSelection(), !selection.isEmpty {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(selection, forType: .string)
+                return true
+            }
+        }
+
+        // Handle Cmd+V for paste
+        if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "v" {
+            if let text = NSPasteboard.general.string(forType: .string) {
+                insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+                return true
+            }
+        }
+
+        return super.performKeyEquivalent(with: event)
+    }
+
+    override func copy(_ sender: Any) {
+        if let selection = getSelection(), !selection.isEmpty {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(selection, forType: .string)
+        }
+    }
+
+    override func paste(_ sender: Any) {
+        if let text = NSPasteboard.general.string(forType: .string) {
+            insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+        }
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(copy(_:)) {
+            if let selection = getSelection(), !selection.isEmpty {
+                return true
+            }
+            return false
+        }
+        if menuItem.action == #selector(paste(_:)) {
+            return NSPasteboard.general.string(forType: .string) != nil
+        }
+        return true
+    }
+}
+
 struct TerminalView: NSViewRepresentable {
     let session: TerminalSession
     var requestFocus: Bool = false
@@ -31,7 +82,7 @@ struct TerminalView: NSViewRepresentable {
         let terminalView = getOrCreateTerminalView()
 
         // Check if we need to swap the terminal view
-        if let currentTerminal = container.subviews.first as? LocalProcessTerminalView,
+        if let currentTerminal = container.subviews.first as? ClaudeTerminalView,
            currentTerminal === terminalView {
             // Same terminal, just handle focus
             if requestFocus {
@@ -61,19 +112,23 @@ struct TerminalView: NSViewRepresentable {
         }
     }
 
-    private func getOrCreateTerminalView() -> LocalProcessTerminalView {
-        if let existingView = session.terminalView {
+    private func getOrCreateTerminalView() -> ClaudeTerminalView {
+        if let existingView = session.terminalView as? ClaudeTerminalView {
             return existingView
         }
 
-        let terminalView = LocalProcessTerminalView(frame: .zero)
+        let terminalView = ClaudeTerminalView(frame: .zero)
         terminalView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
 
         let shellPath = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
 
-        // Build environment array with SWIFTCLAUDE_SESSION_ID
-        var envArray = ProcessInfo.processInfo.environment.map { "\($0.key)=\($0.value)" }
+        // Build environment array with SWIFTCLAUDE_SESSION_ID and color support
+        var envArray = ProcessInfo.processInfo.environment
+            .filter { $0.key != "TERM" && $0.key != "COLORTERM" }
+            .map { "\($0.key)=\($0.value)" }
         envArray.append("SWIFTCLAUDE_SESSION_ID=\(session.id.uuidString)")
+        envArray.append("TERM=xterm-256color")
+        envArray.append("COLORTERM=truecolor")
 
         terminalView.startProcess(
             executable: shellPath,
