@@ -1,55 +1,9 @@
 import SwiftUI
 import SwiftTerm
 
-/// Custom TerminalView subclass that properly handles copy/paste in SwiftUI context
+/// Custom TerminalView subclass for SwiftUI context
+/// Note: Copy/paste is handled by SwiftTerm's parent class (MacTerminalView)
 class ClaudeTerminalView: LocalProcessTerminalView {
-
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        // Handle Cmd+C for copy (when there's a selection)
-        if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "c" {
-            if let selection = getSelection(), !selection.isEmpty {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(selection, forType: .string)
-                return true
-            }
-        }
-
-        // Handle Cmd+V for paste
-        if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "v" {
-            if let text = NSPasteboard.general.string(forType: .string) {
-                insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
-                return true
-            }
-        }
-
-        return super.performKeyEquivalent(with: event)
-    }
-
-    override func copy(_ sender: Any) {
-        if let selection = getSelection(), !selection.isEmpty {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(selection, forType: .string)
-        }
-    }
-
-    override func paste(_ sender: Any) {
-        if let text = NSPasteboard.general.string(forType: .string) {
-            insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
-        }
-    }
-
-    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        if menuItem.action == #selector(copy(_:)) {
-            if let selection = getSelection(), !selection.isEmpty {
-                return true
-            }
-            return false
-        }
-        if menuItem.action == #selector(paste(_:)) {
-            return NSPasteboard.general.string(forType: .string) != nil
-        }
-        return true
-    }
 }
 
 struct TerminalView: NSViewRepresentable {
