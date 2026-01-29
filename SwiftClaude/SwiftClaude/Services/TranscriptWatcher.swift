@@ -12,8 +12,159 @@ final class TranscriptWatcher {
     private var directoryWatchers: [String: DispatchSourceFileSystemObject] = [:]  // directory -> watcher
     private var directoryFDs: [String: Int32] = [:]
 
+    // Hook-based state file watchers (more reliable for waitingForInput)
+    private var stateFileMonitors: [String: DispatchSourceFileSystemObject] = [:]
+    private var stateFileFDs: [String: Int32] = [:]
+    private var stateDirectoryWatcher: DispatchSourceFileSystemObject?
+    private var stateDirectoryFD: Int32 = -1
+    private var watchedSessionIds: Set<String> = []
+
+    // State conflict resolution: track authoritative state per session
+    // Hook-based waitingForInput takes precedence over transcript-based
+    private var currentState: [String: ClaudeState] = [:]
+    private var hookConfirmedWaiting: [String: Bool] = [:]  // True if Stop hook fired this turn
+
+    private var stateDirectory: String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return "\(home)/.claude/swiftclaude-status"
+    }
+
     func startWatching(onStateUpdate: @escaping (String, ClaudeState) -> Void) {
         self.onStateUpdate = onStateUpdate
+        startStateDirectoryWatch()
+    }
+
+    // MARK: - Hook-based State File Watching
+
+    private func startStateDirectoryWatch() {
+        // Ensure directory exists
+        try? FileManager.default.createDirectory(atPath: stateDirectory, withIntermediateDirectories: true)
+
+        let fd = open(stateDirectory, O_EVTONLY)
+        guard fd >= 0 else {
+            print("[SC] Failed to open state directory for watching")
+            return
+        }
+
+        stateDirectoryFD = fd
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: .write,
+            queue: DispatchQueue.main
+        )
+
+        source.setEventHandler { [weak self] in
+            Task { @MainActor in
+                self?.checkForNewStateFiles()
+            }
+        }
+
+        source.setCancelHandler {
+            close(fd)
+        }
+
+        stateDirectoryWatcher = source
+        source.resume()
+
+        // Check for existing state files
+        checkForNewStateFiles()
+    }
+
+    private func checkForNewStateFiles() {
+        for sessionId in watchedSessionIds {
+            let statePath = "\(stateDirectory)/\(sessionId).state"
+            if FileManager.default.fileExists(atPath: statePath) {
+                if stateFileMonitors[sessionId] == nil {
+                    startStateFileWatch(sessionId: sessionId, path: statePath)
+                }
+            }
+        }
+    }
+
+    private func startStateFileWatch(sessionId: String, path: String) {
+        let fd = open(path, O_EVTONLY)
+        guard fd >= 0 else { return }
+
+        print("[SC] Watching state file for \(sessionId.prefix(8))...")
+        stateFileFDs[sessionId] = fd
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .extend, .attrib],
+            queue: DispatchQueue.main
+        )
+
+        source.setEventHandler { [weak self] in
+            Task { @MainActor in
+                self?.checkStateFile(sessionId: sessionId, path: path)
+            }
+        }
+
+        source.setCancelHandler {
+            close(fd)
+        }
+
+        stateFileMonitors[sessionId] = source
+        source.resume()
+
+        // Initial check
+        checkStateFile(sessionId: sessionId, path: path)
+    }
+
+    private func checkStateFile(sessionId: String, path: String) {
+        guard let data = FileManager.default.contents(atPath: path),
+              let content = String(data: data, encoding: .utf8) else {
+            return
+        }
+
+        // Parse the state JSON
+        if let jsonData = content.data(using: .utf8),
+           let state = try? JSONDecoder().decode(HookState.self, from: jsonData) {
+            if state.state == "waitingForInput" {
+                // Hook is authoritative for waitingForInput
+                hookConfirmedWaiting[sessionId] = true
+                emitState(sessionId: sessionId, state: .waitingForInput, source: "Stop hook")
+            }
+        }
+    }
+
+    // MARK: - State Emission with Conflict Resolution
+
+    private func emitState(sessionId: String, state: ClaudeState, source: String) {
+        let previous = currentState[sessionId]
+
+        // Skip duplicate emissions
+        if previous == state {
+            return
+        }
+
+        // If hook already confirmed waitingForInput, ignore transcript-based waitingForInput
+        if state == .waitingForInput && source != "Stop hook" {
+            if hookConfirmedWaiting[sessionId] == true {
+                print("[SC] Ignoring transcript waitingForInput (hook already confirmed)")
+                return
+            }
+        }
+
+        // When transitioning to thinking (new user message), reset hook confirmation
+        if state == .thinking {
+            hookConfirmedWaiting[sessionId] = false
+        }
+
+        currentState[sessionId] = state
+        print("[SC] State: \(state) (from \(source))")
+        onStateUpdate?(sessionId, state)
+    }
+
+    private func stopStateFileWatch(sessionId: String) {
+        stateFileMonitors[sessionId]?.cancel()
+        stateFileMonitors.removeValue(forKey: sessionId)
+        stateFileFDs.removeValue(forKey: sessionId)
+
+        // Clean up the state file
+        let statePath = "\(stateDirectory)/\(sessionId).state"
+        try? FileManager.default.removeItem(atPath: statePath)
     }
 
     func watchTranscript(for sessionId: String, at path: String) {
@@ -29,6 +180,10 @@ final class TranscriptWatcher {
         }
 
         transcriptPaths[sessionId] = path
+
+        // Track this session for hook-based state watching
+        watchedSessionIds.insert(sessionId)
+        checkForNewStateFiles()
 
         // Try to open the file
         let fileDescriptor = open(path, O_EVTONLY)
@@ -143,6 +298,14 @@ final class TranscriptWatcher {
         transcriptPaths.removeValue(forKey: sessionId)
         pendingWatches.removeValue(forKey: sessionId)
         cleanupDirectoryWatchers()
+
+        // Stop hook-based state watching
+        watchedSessionIds.remove(sessionId)
+        stopStateFileWatch(sessionId: sessionId)
+
+        // Clean up state tracking
+        currentState.removeValue(forKey: sessionId)
+        hookConfirmedWaiting.removeValue(forKey: sessionId)
     }
 
     func stopAll() {
@@ -155,6 +318,20 @@ final class TranscriptWatcher {
         }
         directoryWatchers.removeAll()
         directoryFDs.removeAll()
+
+        // Stop all state file watchers
+        for sessionId in Array(stateFileMonitors.keys) {
+            stopStateFileWatch(sessionId: sessionId)
+        }
+        watchedSessionIds.removeAll()
+
+        // Stop directory watcher
+        stateDirectoryWatcher?.cancel()
+        stateDirectoryWatcher = nil
+        if stateDirectoryFD >= 0 {
+            close(stateDirectoryFD)
+            stateDirectoryFD = -1
+        }
     }
 
     private func checkTranscript(sessionId: String) {
@@ -177,22 +354,18 @@ final class TranscriptWatcher {
 
             // "summary" means Claude finished the turn
             if entryType == "summary" {
-                print("[SC] State: waitingForInput (summary found at position \(checkedCount))")
-                onStateUpdate?(sessionId, .waitingForInput)
+                emitState(sessionId: sessionId, state: .waitingForInput, source: "transcript summary")
                 return
             }
 
-            // Only process user/assistant message entries
-            // Skip progress, file-history-snapshot, and other non-message types
-            guard entryType == "user" || entryType == "assistant" else {
+            // Skip other non-message entries
+            if entryType == "file-history-snapshot" {
                 continue
             }
 
-            // Found a relevant message entry
+            // Found a relevant entry
             let state = determineState(from: entry)
-            let stopInfo = entry.stopReason ?? entry.message?.stopReason ?? "none"
-            print("[SC] State: \(state) (from \(entryType) at position \(checkedCount), stop_reason: \(stopInfo))")
-            onStateUpdate?(sessionId, state)
+            emitState(sessionId: sessionId, state: state, source: "transcript \(entryType)")
             return
         }
     }
@@ -230,13 +403,15 @@ final class TranscriptWatcher {
         }
 
         // Check content types in the message
-        // Use the LAST content block - a message might have [thinking, text, tool_use]
-        // and we want to detect the tool_use state, not just the first block
-        if let content = message.content, let lastContent = content.last {
-            switch lastContent.type {
+        if let content = message.content, let firstContent = content.first {
+            switch firstContent.type {
             case "thinking":
                 return .thinking
             case "tool_use":
+                // Check if this is AskUserQuestion - a special case where Claude is asking the user
+                if firstContent.name == "AskUserQuestion" {
+                    return .askingQuestion
+                }
                 return .toolUse
             case "tool_result":
                 return .thinking  // After tool result, Claude will continue thinking
@@ -245,7 +420,7 @@ final class TranscriptWatcher {
                 // (Claude Code doesn't stream partial text to transcript)
                 return .waitingForInput
             default:
-                print("[SC] Unknown content type: \(lastContent.type)")
+                print("[SC] Unknown content type: \(firstContent.type)")
                 break
             }
         } else {
@@ -307,4 +482,12 @@ struct TranscriptMessage: Decodable {
 
 struct TranscriptContent: Codable {
     let type: String
+    let name: String?  // Tool name for tool_use entries (e.g., "AskUserQuestion", "Bash", "Read")
+}
+
+// MARK: - Hook State Model
+
+struct HookState: Decodable {
+    let state: String
+    let timestamp: Int?
 }

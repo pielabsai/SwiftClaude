@@ -19,6 +19,11 @@ final class TranscriptWatcher {
     private var stateDirectoryFD: Int32 = -1
     private var watchedSessionIds: Set<String> = []
 
+    // State conflict resolution: track authoritative state per session
+    // Hook-based waitingForInput takes precedence over transcript-based
+    private var currentState: [String: ClaudeState] = [:]
+    private var hookConfirmedWaiting: [String: Bool] = [:]  // True if Stop hook fired this turn
+
     private var stateDirectory: String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return "\(home)/.claude/swiftclaude-status"
@@ -117,10 +122,39 @@ final class TranscriptWatcher {
         if let jsonData = content.data(using: .utf8),
            let state = try? JSONDecoder().decode(HookState.self, from: jsonData) {
             if state.state == "waitingForInput" {
-                print("[SC] State: waitingForInput (from Stop hook)")
-                onStateUpdate?(sessionId, .waitingForInput)
+                // Hook is authoritative for waitingForInput
+                hookConfirmedWaiting[sessionId] = true
+                emitState(sessionId: sessionId, state: .waitingForInput, source: "Stop hook")
             }
         }
+    }
+
+    // MARK: - State Emission with Conflict Resolution
+
+    private func emitState(sessionId: String, state: ClaudeState, source: String) {
+        let previous = currentState[sessionId]
+
+        // Skip duplicate emissions
+        if previous == state {
+            return
+        }
+
+        // If hook already confirmed waitingForInput, ignore transcript-based waitingForInput
+        if state == .waitingForInput && source != "Stop hook" {
+            if hookConfirmedWaiting[sessionId] == true {
+                print("[SC] Ignoring transcript waitingForInput (hook already confirmed)")
+                return
+            }
+        }
+
+        // When transitioning to thinking (new user message), reset hook confirmation
+        if state == .thinking {
+            hookConfirmedWaiting[sessionId] = false
+        }
+
+        currentState[sessionId] = state
+        print("[SC] State: \(state) (from \(source))")
+        onStateUpdate?(sessionId, state)
     }
 
     private func stopStateFileWatch(sessionId: String) {
@@ -268,6 +302,10 @@ final class TranscriptWatcher {
         // Stop hook-based state watching
         watchedSessionIds.remove(sessionId)
         stopStateFileWatch(sessionId: sessionId)
+
+        // Clean up state tracking
+        currentState.removeValue(forKey: sessionId)
+        hookConfirmedWaiting.removeValue(forKey: sessionId)
     }
 
     func stopAll() {
@@ -316,8 +354,7 @@ final class TranscriptWatcher {
 
             // "summary" means Claude finished the turn
             if entryType == "summary" {
-                print("[SC] State: waitingForInput (summary found at position \(checkedCount))")
-                onStateUpdate?(sessionId, .waitingForInput)
+                emitState(sessionId: sessionId, state: .waitingForInput, source: "transcript summary")
                 return
             }
 
@@ -328,9 +365,7 @@ final class TranscriptWatcher {
 
             // Found a relevant entry
             let state = determineState(from: entry)
-            let stopInfo = entry.stopReason ?? entry.message?.stopReason ?? "none"
-            print("[SC] State: \(state) (from \(entryType) at position \(checkedCount), stop_reason: \(stopInfo))")
-            onStateUpdate?(sessionId, state)
+            emitState(sessionId: sessionId, state: state, source: "transcript \(entryType)")
             return
         }
     }
