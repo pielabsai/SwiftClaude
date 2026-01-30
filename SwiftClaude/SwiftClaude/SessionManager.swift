@@ -77,8 +77,12 @@ final class SessionManager {
         session.relevantTranscriptLine = debugInfo.transcriptLine
 
         // Show attention indicator if state requires it and session is not focused
+        // Clear it if the state no longer requires attention
         if state.requiresAttention && selectedSessionID != session.id {
             session.hasUnseenAttention = true
+            updateDockBadge()
+        } else if !state.requiresAttention && session.hasUnseenAttention {
+            session.hasUnseenAttention = false
             updateDockBadge()
         }
     }
