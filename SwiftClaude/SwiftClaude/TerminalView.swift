@@ -4,6 +4,13 @@ import SwiftTerm
 /// Custom TerminalView subclass for SwiftUI context
 /// Note: Copy/paste is handled by SwiftTerm's parent class (MacTerminalView)
 class ClaudeTerminalView: LocalProcessTerminalView {
+    /// Callback invoked when terminal receives data (activity detected)
+    var onActivity: (() -> Void)?
+
+    override func dataReceived(slice: ArraySlice<UInt8>) {
+        super.dataReceived(slice: slice)
+        onActivity?()
+    }
 }
 
 struct TerminalView: NSViewRepresentable {
@@ -90,6 +97,13 @@ struct TerminalView: NSViewRepresentable {
             environment: envArray,
             execName: nil
         )
+
+        // Track activity for inactivity-based attention
+        terminalView.onActivity = { [weak session] in
+            DispatchQueue.main.async {
+                session?.lastActivityTime = Date()
+            }
+        }
 
         let command = "cd '\(session.directory.path)' && claude\n"
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {

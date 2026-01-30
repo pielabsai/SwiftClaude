@@ -17,6 +17,10 @@ final class TerminalSession: Identifiable, Codable {
     // Attention indicator (red dot on tab)
     var hasUnseenAttention: Bool = false
 
+    // Activity tracking for inactivity-based attention
+    var lastActivityTime: Date = Date()
+    var isInactivityAttention: Bool = false
+
     enum CodingKeys: String, CodingKey {
         case id, directory, name
     }

@@ -7,6 +7,7 @@ import AppKit
 final class SessionManager {
     private static let sessionsKey = "savedSessions"
     private static let selectedSessionKey = "selectedSessionID"
+    private static let inactivityTimeout: TimeInterval = 30
 
     var sessions: [TerminalSession] = []
 
@@ -19,6 +20,7 @@ final class SessionManager {
     private var statusFileWatcher: StatusFileWatcher?
     private var transcriptWatcher: TranscriptWatcher?
     private var watchedTranscripts: Set<UUID> = []
+    private var inactivityTimer: Timer?
 
     var selectedSession: TerminalSession? {
         guard let id = selectedSessionID else { return nil }
@@ -35,6 +37,7 @@ final class SessionManager {
         setupTranscriptWatcher()
         setupStatusFileWatcher()
         resumeTranscriptWatching()
+        setupInactivityTimer()
     }
 
     private func resumeTranscriptWatching() {
@@ -90,6 +93,8 @@ final class SessionManager {
     /// Clear attention indicator when a session is selected
     func clearAttention(for session: TerminalSession) {
         session.hasUnseenAttention = false
+        session.isInactivityAttention = false
+        session.lastActivityTime = Date()  // Reset activity time when user views session
         updateDockBadge()
     }
 
@@ -97,6 +102,42 @@ final class SessionManager {
     private func updateDockBadge() {
         let count = attentionCount
         NSApp.dockTile.badgeLabel = count > 0 ? "\(count)" : nil
+    }
+
+    private func setupInactivityTimer() {
+        // Check every 5 seconds for inactive sessions
+        inactivityTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor [self] in
+                self.checkForInactiveSessions()
+            }
+        }
+    }
+
+    private func checkForInactiveSessions() {
+        let now = Date()
+        var needsBadgeUpdate = false
+
+        for session in sessions {
+            let timeSinceActivity = now.timeIntervalSince(session.lastActivityTime)
+            let isInactive = timeSinceActivity > Self.inactivityTimeout
+
+            if isInactive && !session.isInactivityAttention && selectedSessionID != session.id {
+                // Session became inactive - show attention
+                session.isInactivityAttention = true
+                session.hasUnseenAttention = true
+                needsBadgeUpdate = true
+            } else if !isInactive && session.isInactivityAttention {
+                // Activity resumed - clear inactivity attention
+                session.isInactivityAttention = false
+                session.hasUnseenAttention = false
+                needsBadgeUpdate = true
+            }
+        }
+
+        if needsBadgeUpdate {
+            updateDockBadge()
+        }
     }
 
     private func handleStatusUpdate(sessionId: String, status: ClaudeStatus) {
