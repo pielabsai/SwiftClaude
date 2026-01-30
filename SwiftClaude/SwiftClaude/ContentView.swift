@@ -149,7 +149,11 @@ struct SidebarView: View {
 }
 
 struct SessionRowView: View {
+    @Environment(SessionManager.self) private var sessionManager
     @Bindable var session: TerminalSession
+    @State private var isEditing = false
+    @State private var editedName = ""
+    @FocusState private var isTextFieldFocused: Bool
 
     var body: some View {
         HStack(spacing: 8) {
@@ -157,8 +161,25 @@ struct SessionRowView: View {
                 .foregroundStyle(session.currentState.color)
                 .help(session.currentState.displayName)
 
-            Text(session.name)
-                .lineLimit(1)
+            if isEditing {
+                TextField("Name", text: $editedName)
+                    .textFieldStyle(.plain)
+                    .focused($isTextFieldFocused)
+                    .onSubmit {
+                        commitRename()
+                    }
+                    .onChange(of: isTextFieldFocused) { _, focused in
+                        if !focused {
+                            commitRename()
+                        }
+                    }
+            } else {
+                Text(session.name)
+                    .lineLimit(1)
+                    .onTapGesture(count: 2) {
+                        startEditing()
+                    }
+            }
 
             Spacer()
 
@@ -169,6 +190,22 @@ struct SessionRowView: View {
                     .frame(width: 8, height: 8)
             }
         }
+    }
+
+    private func startEditing() {
+        editedName = session.name
+        isEditing = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            isTextFieldFocused = true
+        }
+    }
+
+    private func commitRename() {
+        let trimmed = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty && trimmed != session.name {
+            sessionManager.renameSession(session, to: trimmed)
+        }
+        isEditing = false
     }
 }
 

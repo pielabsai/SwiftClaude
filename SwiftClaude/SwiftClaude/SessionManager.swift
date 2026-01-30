@@ -175,6 +175,11 @@ final class SessionManager {
         updateSessionMapping()
     }
 
+    func renameSession(_ session: TerminalSession, to newName: String) {
+        session.name = newName
+        save()
+    }
+
     private func updateSessionMapping() {
         // Write directory -> session ID mapping for the statusline hook
         let homeDir = FileManager.default.homeDirectoryForCurrentUser
