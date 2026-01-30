@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import AppKit
 
 @Observable
 @MainActor
@@ -8,6 +9,11 @@ final class SessionManager {
     private static let selectedSessionKey = "selectedSessionID"
 
     var sessions: [TerminalSession] = []
+
+    /// Number of sessions currently requiring attention
+    var attentionCount: Int {
+        sessions.filter { $0.hasUnseenAttention }.count
+    }
     var selectedSessionID: UUID?
     var showingDirectoryPicker = false
     private var statusFileWatcher: StatusFileWatcher?
@@ -73,12 +79,20 @@ final class SessionManager {
         // Show attention indicator if state requires it and session is not focused
         if state.requiresAttention && selectedSessionID != session.id {
             session.hasUnseenAttention = true
+            updateDockBadge()
         }
     }
 
     /// Clear attention indicator when a session is selected
     func clearAttention(for session: TerminalSession) {
         session.hasUnseenAttention = false
+        updateDockBadge()
+    }
+
+    /// Update the Dock badge to show the number of sessions needing attention
+    private func updateDockBadge() {
+        let count = attentionCount
+        NSApp.dockTile.badgeLabel = count > 0 ? "\(count)" : nil
     }
 
     private func handleStatusUpdate(sessionId: String, status: ClaudeStatus) {
