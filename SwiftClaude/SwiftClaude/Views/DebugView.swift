@@ -38,17 +38,26 @@ struct DebugView: View {
             Divider()
 
             if let status = status {
-                HStack(alignment: .top, spacing: 16) {
+                HStack(alignment: .top, spacing: 0) {
                     // Parsed fields panel
                     parsedFieldsView(status)
-                        .frame(width: 200)
+                        .frame(maxWidth: .infinity)
+                        .padding(12)
 
                     Divider()
 
-                    // State sources panel
-                    stateSourcesView()
+                    // Hook State panel
+                    hookStateView()
+                        .frame(maxWidth: .infinity)
+                        .padding(12)
+
+                    Divider()
+
+                    // Transcript Line panel
+                    transcriptLineView()
+                        .frame(maxWidth: .infinity)
+                        .padding(12)
                 }
-                .padding(12)
             } else {
                 ContentUnavailableView {
                     Label("No Status Data", systemImage: "questionmark.circle")
@@ -162,55 +171,54 @@ struct DebugView: View {
     }
 
     @ViewBuilder
-    private func stateSourcesView() -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Hook State JSON
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Hook State")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textCase(.uppercase)
+    private func hookStateView() -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Hook State")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
 
-                ScrollView([.horizontal, .vertical]) {
-                    if let hookJSON = session.rawHookStateJSON {
-                        Text(formatJSON(hookJSON))
-                            .font(.system(.caption, design: .monospaced))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        Text("No hook state received")
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                    }
+            ScrollView([.horizontal, .vertical]) {
+                if let hookJSON = session.rawHookStateJSON {
+                    Text(formatJSON(hookJSON))
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Text("No hook state received")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
                 }
-                .frame(maxWidth: .infinity, maxHeight: 60)
-                .background(Color(nsColor: .textBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: 4))
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(nsColor: .textBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+        }
+    }
 
-            // Transcript Line
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Transcript Line")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textCase(.uppercase)
+    @ViewBuilder
+    private func transcriptLineView() -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Transcript Line")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
 
-                ScrollView([.horizontal, .vertical]) {
-                    if let transcriptLine = session.relevantTranscriptLine {
-                        Text(formatJSON(transcriptLine))
-                            .font(.system(.caption, design: .monospaced))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        Text("No transcript line received")
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                    }
+            ScrollView([.horizontal, .vertical]) {
+                if let transcriptLine = session.relevantTranscriptLine {
+                    Text(formatJSON(transcriptLine))
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Text("No transcript line received")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(nsColor: .textBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: 4))
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(nsColor: .textBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 4))
         }
     }
 
