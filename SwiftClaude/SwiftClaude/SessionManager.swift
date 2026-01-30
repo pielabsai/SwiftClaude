@@ -50,12 +50,12 @@ final class SessionManager {
 
     private func setupTranscriptWatcher() {
         transcriptWatcher = TranscriptWatcher()
-        transcriptWatcher?.startWatching { [weak self] sessionId, state in
-            self?.handleStateUpdate(sessionId: sessionId, state: state)
+        transcriptWatcher?.startWatching { [weak self] sessionId, state, debugInfo in
+            self?.handleStateUpdate(sessionId: sessionId, state: state, debugInfo: debugInfo)
         }
     }
 
-    private func handleStateUpdate(sessionId: String, state: ClaudeState) {
+    private func handleStateUpdate(sessionId: String, state: ClaudeState, debugInfo: StateDebugInfo) {
         print("[SC] State update for \(sessionId.prefix(8))... -> \(state)")
 
         // Direct match by SwiftClaude session ID
@@ -67,6 +67,8 @@ final class SessionManager {
 
         print("[SC] Updating state for '\(session.name)' to \(state)")
         session.currentState = state
+        session.rawHookStateJSON = debugInfo.hookStateJSON
+        session.relevantTranscriptLine = debugInfo.transcriptLine
     }
 
     private func handleStatusUpdate(sessionId: String, status: ClaudeStatus) {

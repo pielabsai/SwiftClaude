@@ -1,11 +1,17 @@
 import Foundation
 
+/// Debug info passed with state updates
+struct StateDebugInfo {
+    let hookStateJSON: String?
+    let transcriptLine: String?
+}
+
 @MainActor
 final class TranscriptWatcher {
     private var fileMonitors: [String: DispatchSourceFileSystemObject] = [:]
     private var fileDescriptors: [String: Int32] = [:]
     private(set) var transcriptPaths: [String: String] = [:]
-    private var onStateUpdate: ((String, ClaudeState) -> Void)?
+    private var onStateUpdate: ((String, ClaudeState, StateDebugInfo) -> Void)?
 
     // Directory watchers for pending transcript files
     private var pendingWatches: [String: String] = [:]  // sessionId -> path
@@ -24,12 +30,16 @@ final class TranscriptWatcher {
     private var currentState: [String: ClaudeState] = [:]
     private var hookConfirmedWaiting: [String: Bool] = [:]  // True if Stop hook fired this turn
 
+    // Debug info: store raw data for display
+    private var lastHookStateJSON: [String: String] = [:]
+    private var lastTranscriptLine: [String: String] = [:]
+
     private var stateDirectory: String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return "\(home)/.claude/swiftclaude-status"
     }
 
-    func startWatching(onStateUpdate: @escaping (String, ClaudeState) -> Void) {
+    func startWatching(onStateUpdate: @escaping (String, ClaudeState, StateDebugInfo) -> Void) {
         self.onStateUpdate = onStateUpdate
         startStateDirectoryWatch()
     }
@@ -118,6 +128,9 @@ final class TranscriptWatcher {
             return
         }
 
+        // Store raw hook JSON for debug display
+        lastHookStateJSON[sessionId] = content.trimmingCharacters(in: .whitespacesAndNewlines)
+
         // Parse the state JSON
         if let jsonData = content.data(using: .utf8),
            let state = try? JSONDecoder().decode(HookState.self, from: jsonData) {
@@ -154,7 +167,12 @@ final class TranscriptWatcher {
 
         currentState[sessionId] = state
         print("[SC] State: \(state) (from \(source))")
-        onStateUpdate?(sessionId, state)
+
+        let debugInfo = StateDebugInfo(
+            hookStateJSON: lastHookStateJSON[sessionId],
+            transcriptLine: lastTranscriptLine[sessionId]
+        )
+        onStateUpdate?(sessionId, state, debugInfo)
     }
 
     private func stopStateFileWatch(sessionId: String) {
@@ -306,6 +324,10 @@ final class TranscriptWatcher {
         // Clean up state tracking
         currentState.removeValue(forKey: sessionId)
         hookConfirmedWaiting.removeValue(forKey: sessionId)
+
+        // Clean up debug info
+        lastHookStateJSON.removeValue(forKey: sessionId)
+        lastTranscriptLine.removeValue(forKey: sessionId)
     }
 
     func stopAll() {
@@ -354,6 +376,7 @@ final class TranscriptWatcher {
 
             // "summary" means Claude finished the turn
             if entryType == "summary" {
+                lastTranscriptLine[sessionId] = line
                 emitState(sessionId: sessionId, state: .waitingForInput, source: "transcript summary")
                 return
             }
@@ -363,7 +386,8 @@ final class TranscriptWatcher {
                 continue
             }
 
-            // Found a relevant entry
+            // Found a relevant entry - store for debug display
+            lastTranscriptLine[sessionId] = line
             let state = determineState(from: entry)
             emitState(sessionId: sessionId, state: state, source: "transcript \(entryType)")
             return

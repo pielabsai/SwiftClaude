@@ -10,6 +10,10 @@ final class TerminalSession: Identifiable, Codable {
     var status: ClaudeStatus?
     var currentState: ClaudeState = .idle
 
+    // Debug info
+    var rawHookStateJSON: String?
+    var relevantTranscriptLine: String?
+
     enum CodingKeys: String, CodingKey {
         case id, directory, name
     }

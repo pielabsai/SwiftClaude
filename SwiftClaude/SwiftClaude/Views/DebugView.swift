@@ -19,17 +19,9 @@ struct DebugView: View {
                 // Current state indicator
                 StateIndicator(state: session.currentState)
 
-                if let status = status {
-                    if status.transcriptPath != nil {
-                        Button(action: copyTranscript) {
-                            Label("Copy Transcript", systemImage: "text.document")
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-
-                    Button(action: copyToClipboard) {
-                        Label("Copy JSON", systemImage: "doc.on.doc")
+                if status != nil {
+                    Button(action: copyDebugInfo) {
+                        Label("Copy Debug", systemImage: "doc.on.doc")
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -53,8 +45,8 @@ struct DebugView: View {
 
                     Divider()
 
-                    // Raw JSON panel
-                    rawJSONView(status)
+                    // State sources panel
+                    stateSourcesView()
                 }
                 .padding(12)
             } else {
@@ -170,41 +162,75 @@ struct DebugView: View {
     }
 
     @ViewBuilder
-    private func rawJSONView(_ status: ClaudeStatus) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Raw JSON")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
+    private func stateSourcesView() -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Hook State JSON
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Hook State")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
 
-            ScrollView([.horizontal, .vertical]) {
-                Text(formatJSON(status.rawJSON ?? "{}"))
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                ScrollView([.horizontal, .vertical]) {
+                    if let hookJSON = session.rawHookStateJSON {
+                        Text(formatJSON(hookJSON))
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        Text("No hook state received")
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: 60)
+                .background(Color(nsColor: .textBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 4))
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: .textBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+
+            // Transcript Line
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Transcript Line")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+
+                ScrollView([.horizontal, .vertical]) {
+                    if let transcriptLine = session.relevantTranscriptLine {
+                        Text(formatJSON(transcriptLine))
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        Text("No transcript line received")
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(nsColor: .textBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+            }
         }
     }
 
-    private func copyToClipboard() {
-        guard let json = status?.rawJSON else { return }
+    private func copyDebugInfo() {
+        var lines: [String] = []
+        lines.append("=== Hook State ===")
+        if let hookJSON = session.rawHookStateJSON {
+            lines.append(formatJSON(hookJSON))
+        } else {
+            lines.append("(none)")
+        }
+        lines.append("")
+        lines.append("=== Transcript Line ===")
+        if let transcriptLine = session.relevantTranscriptLine {
+            lines.append(formatJSON(transcriptLine))
+        } else {
+            lines.append("(none)")
+        }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(formatJSON(json), forType: .string)
-    }
-
-    private func copyTranscript() {
-        guard let path = status?.transcriptPath else { return }
-        let url = URL(fileURLWithPath: path)
-        do {
-            let content = try String(contentsOf: url, encoding: .utf8)
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(content, forType: .string)
-        } catch {
-            print("[SC] Failed to read transcript: \(error)")
-        }
+        NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
     }
 
     private func formatJSON(_ json: String) -> String {
