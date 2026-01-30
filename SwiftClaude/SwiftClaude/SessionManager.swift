@@ -69,6 +69,16 @@ final class SessionManager {
         session.currentState = state
         session.rawHookStateJSON = debugInfo.hookStateJSON
         session.relevantTranscriptLine = debugInfo.transcriptLine
+
+        // Show attention indicator if state requires it and session is not focused
+        if state.requiresAttention && selectedSessionID != session.id {
+            session.hasUnseenAttention = true
+        }
+    }
+
+    /// Clear attention indicator when a session is selected
+    func clearAttention(for session: TerminalSession) {
+        session.hasUnseenAttention = false
     }
 
     private func handleStatusUpdate(sessionId: String, status: ClaudeStatus) {

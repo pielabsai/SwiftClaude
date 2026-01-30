@@ -44,4 +44,14 @@ enum ClaudeState: String, Codable {
         case .error: return "exclamationmark.triangle.fill"
         }
     }
+
+    /// Whether this state indicates work is done and/or user input is required
+    var requiresAttention: Bool {
+        switch self {
+        case .waitingForInput, .askingQuestion, .error:
+            return true
+        case .idle, .thinking, .toolUse, .responding:
+            return false
+        }
+    }
 }

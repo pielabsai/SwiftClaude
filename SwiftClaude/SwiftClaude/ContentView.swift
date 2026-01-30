@@ -96,6 +96,13 @@ struct SidebarView: View {
                 }
             }
             .listStyle(.sidebar)
+            .onChange(of: sessionManager.selectedSessionID) { _, newID in
+                // Clear attention indicator when session is selected
+                if let newID = newID,
+                   let session = sessionManager.sessions.first(where: { $0.id == newID }) {
+                    sessionManager.clearAttention(for: session)
+                }
+            }
         }
         .navigationTitle("Sessions")
         .toolbar {
@@ -152,6 +159,15 @@ struct SessionRowView: View {
 
             Text(session.name)
                 .lineLimit(1)
+
+            Spacer()
+
+            // Red attention dot for unseen state changes requiring input
+            if session.hasUnseenAttention {
+                Circle()
+                    .fill(.red)
+                    .frame(width: 8, height: 8)
+            }
         }
     }
 }

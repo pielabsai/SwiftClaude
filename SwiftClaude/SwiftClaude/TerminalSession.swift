@@ -14,6 +14,9 @@ final class TerminalSession: Identifiable, Codable {
     var rawHookStateJSON: String?
     var relevantTranscriptLine: String?
 
+    // Attention indicator (red dot on tab)
+    var hasUnseenAttention: Bool = false
+
     enum CodingKeys: String, CodingKey {
         case id, directory, name
     }
